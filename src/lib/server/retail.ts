@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/private';
+import { getSetting } from '$lib/server/store';
 import type { InventoryLogEntry, RSeriesItem, RSeriesTokenResponse } from '$lib/types';
 
 // ── Token cache ─────────────────────────────────────────────────────
@@ -10,6 +11,9 @@ async function getAccessToken(): Promise<string> {
 		return tokenCache.accessToken;
 	}
 
+	const refreshToken = getSetting('ls_retail_refresh_token');
+	if (!refreshToken) throw new Error('R-Series refresh token not configured. Complete OAuth setup first.');
+
 	const res = await fetch('https://cloud.merchantos.com/oauth/access_token.php', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -17,7 +21,7 @@ async function getAccessToken(): Promise<string> {
 			grant_type: 'refresh_token',
 			client_id: env.LS_RETAIL_CLIENT_ID!,
 			client_secret: env.LS_RETAIL_CLIENT_SECRET!,
-			refresh_token: env.LS_RETAIL_REFRESH_TOKEN!
+			refresh_token: refreshToken
 		})
 	});
 
@@ -49,7 +53,13 @@ async function rateLimit(): Promise<void> {
 
 // ── Authenticated fetch ─────────────────────────────────────────────
 
-const API_BASE = () => `https://api.merchantos.com/API/Account/${env.LS_RETAIL_ACCOUNT_ID}`;
+function getAccountId(): string {
+	const id = getSetting('ls_retail_account_id');
+	if (!id) throw new Error('R-Series account ID not configured. Complete OAuth setup first.');
+	return id;
+}
+
+const API_BASE = () => `https://api.merchantos.com/API/Account/${getAccountId()}`;
 
 async function retailFetch<T>(path: string): Promise<T> {
 	await rateLimit();

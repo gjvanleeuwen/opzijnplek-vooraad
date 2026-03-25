@@ -1,5 +1,5 @@
 import { db } from '$lib/server/db';
-import { watermark, syncRuns, syncWarnings } from '$lib/server/db/schema';
+import { settings, watermark, syncRuns, syncWarnings } from '$lib/server/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import type {
 	SyncRunRecord,
@@ -9,6 +9,27 @@ import type {
 	SyncWarning,
 	VerificationResult
 } from '$lib/types';
+
+// ── Settings ─────────────────────────────────────────────────────────
+
+export function getSetting(key: string): string | null {
+	const row = db.select().from(settings).where(eq(settings.key, key)).get();
+	return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+	const exists = db.select().from(settings).where(eq(settings.key, key)).get();
+	if (exists) {
+		db.update(settings)
+			.set({ value, updatedAt: new Date().toISOString() })
+			.where(eq(settings.key, key))
+			.run();
+	} else {
+		db.insert(settings)
+			.values({ key, value, updatedAt: new Date().toISOString() })
+			.run();
+	}
+}
 
 // ── Watermark ────────────────────────────────────────────────────────
 

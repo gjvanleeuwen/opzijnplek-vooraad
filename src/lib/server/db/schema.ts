@@ -1,5 +1,11 @@
 import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
 
+export const settings = sqliteTable('settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull(),
+	updatedAt: text('updated_at')
+});
+
 export const watermark = sqliteTable('watermark', {
 	id: integer('id').primaryKey().$defaultFn(() => 1),
 	lastInventoryLogId: integer('last_inventory_log_id').notNull().default(0),

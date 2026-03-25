@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { setSetting } from '$lib/server/store';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -40,24 +41,26 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 	});
 
-	let accountId = env.LS_RETAIL_ACCOUNT_ID || '';
+	let accountId = '';
 	if (accountRes.ok) {
 		const accountData = await accountRes.json();
 		const account = accountData.Account;
 		if (Array.isArray(account)) {
-			accountId = account[0]?.accountID || accountId;
+			accountId = account[0]?.accountID || '';
 		} else if (account?.accountID) {
 			accountId = account.accountID;
 		}
 	}
 
-	// Return the tokens — user needs to save them to .env manually
+	if (accountId) {
+		setSetting('ls_retail_account_id', accountId);
+	}
+	setSetting('ls_retail_refresh_token', data.refresh_token);
+
 	return json({
-		message: 'OAuth successful! Add these to your .env file:',
-		LS_RETAIL_ACCOUNT_ID: accountId,
-		LS_RETAIL_REFRESH_TOKEN: data.refresh_token,
-		access_token: data.access_token,
-		expires_in: data.expires_in,
-		note: 'The refresh_token is long-lived. The access_token expires and will be auto-refreshed.'
+		message: 'OAuth successful! Account ID and refresh token saved to database.',
+		account_id: accountId,
+		account_id_saved: !!accountId,
+		refresh_token_saved: true
 	});
 };
