@@ -5,8 +5,11 @@
 
 	let { data }: { data: PageData } = $props();
 
-	let runs = $state(data.runs);
-	let warnings = $state(data.warnings);
+	let extraRuns = $state<typeof data.runs | null>(null);
+	let extraWarnings = $state<typeof data.warnings | null>(null);
+	let runs = $derived(extraRuns ?? data.runs);
+	let warnings = $derived(extraWarnings ?? data.warnings);
+	let retailConnected = $derived(data.retailConnected);
 	let syncing = $state(false);
 	let previewing = $state(false);
 	let preview = $state<PreviewResult | null>(null);
@@ -52,12 +55,12 @@
 
 	async function refreshRuns() {
 		const res = await fetch('/api/sync/runs');
-		if (res.ok) runs = await res.json();
+		if (res.ok) extraRuns = await res.json();
 	}
 
 	async function refreshWarnings() {
 		const res = await fetch('/api/sync/warnings');
-		if (res.ok) warnings = await res.json();
+		if (res.ok) extraWarnings = await res.json();
 	}
 
 	async function acknowledgeWarning(id: number) {
@@ -118,9 +121,9 @@
 	<div class="mx-auto max-w-5xl">
 		<!-- Header -->
 		<div class="mb-8 flex items-center justify-between">
-			<div>
-				<h1 class="text-2xl font-bold text-gray-900">OpZijnPlek</h1>
-				<p class="text-sm text-gray-500">Lightspeed R-Series → eCom inventory sync</p>
+			<div class="flex items-center gap-3">
+				<img src="/opzijnplek.png" alt="Op Zijn Plek" class="h-10" />
+				<p class="text-sm text-gray-500">Inventory sync</p>
 			</div>
 			{#if runs.length > 0}
 				{@const last = runs[0]}
@@ -178,11 +181,25 @@
 			</div>
 		{/if}
 
+		<!-- Connection status -->
+		{#if !retailConnected}
+			<div class="mb-4 rounded border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm">
+				<span class="font-medium text-yellow-800">R-Series not connected.</span>
+				<span class="text-yellow-700">You need to authorize via OAuth to get a refresh token.</span>
+				<a
+					href="/api/auth/retail"
+					class="ml-2 inline-block rounded bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-700"
+				>
+					Connect R-Series
+				</a>
+			</div>
+		{/if}
+
 		<!-- Actions -->
 		<div class="mb-6 flex flex-wrap items-end gap-4">
 			<button
 				onclick={triggerSync}
-				disabled={syncing}
+				disabled={syncing || !retailConnected}
 				class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
 			>
 				{syncing ? 'Syncing...' : 'Run sync now'}

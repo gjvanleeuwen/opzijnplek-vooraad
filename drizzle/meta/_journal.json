@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1774452824833,
+      "tag": "0000_awesome_polaris",
+      "breakpoints": true
+    }
+  ]
+}
