@@ -118,7 +118,7 @@ export async function fetchLatestInventoryLogs(limit = 100): Promise<InventoryLo
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchRecentSales(limit = 5): Promise<any> {
-	return retailFetch(`/Sale.json?orderby=saleID&orderby_desc=true&limit=${limit}&load_relations=["SaleLines"]`);
+	return retailFetch(`/Sale.json?orderby=saleID&orderby_desc=1&limit=${limit}&load_relations=["SaleLines"]`);
 }
 
 export async function fetchItem(itemId: string): Promise<RSeriesItem> {
