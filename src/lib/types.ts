@@ -75,6 +75,20 @@ export interface VerificationResult {
 	warnings: Omit<SyncWarning, 'id' | 'acknowledged'>[];
 }
 
+export interface SaleDetailItem {
+	sku: string;
+	reason: string;
+	qohChange: number;
+	inventoryLogID: string;
+}
+
+export interface SaleDetail {
+	saleID: string;
+	time: string;
+	items: SaleDetailItem[];
+	totalDelta: number;
+}
+
 export interface SyncRunRecord {
 	id: number;
 	status: SyncStatus;
@@ -91,4 +105,5 @@ export interface SyncRunRecord {
 	finishedAt: string | null;
 	verification: VerificationResult | null;
 	saleIds: string[];
+	salesDetail: SaleDetail[];
 }

@@ -7,7 +7,8 @@ import type {
 	TriggerSource,
 	SkuResult,
 	SyncWarning,
-	VerificationResult
+	VerificationResult,
+	SaleDetail
 } from '$lib/types';
 
 // ── Settings ─────────────────────────────────────────────────────────
@@ -86,17 +87,19 @@ export function updateSyncRun(
 		log?: SkuResult[];
 		verification?: VerificationResult;
 		saleIds?: string[];
+		salesDetail?: SaleDetail[];
 		error?: string | null;
 		finishedAt?: string;
 	}
 ): void {
-	const { log, verification, saleIds, ...rest } = data;
+	const { log, verification, saleIds, salesDetail, ...rest } = data;
 	db.update(syncRuns)
 		.set({
 			...rest,
 			...(log !== undefined ? { log: JSON.stringify(log) } : {}),
 			...(verification !== undefined ? { verification: JSON.stringify(verification) } : {}),
-			...(saleIds !== undefined ? { saleIds: JSON.stringify(saleIds) } : {})
+			...(saleIds !== undefined ? { saleIds: JSON.stringify(saleIds) } : {}),
+			...(salesDetail !== undefined ? { salesDetail: JSON.stringify(salesDetail) } : {})
 		})
 		.where(eq(syncRuns.id, id))
 		.run();
@@ -178,6 +181,7 @@ function rowToRecord(row: typeof syncRuns.$inferSelect): SyncRunRecord {
 		startedAt: row.startedAt,
 		finishedAt: row.finishedAt,
 		verification: row.verification ? JSON.parse(row.verification) : null,
-		saleIds: row.saleIds ? JSON.parse(row.saleIds) : []
+		saleIds: row.saleIds ? JSON.parse(row.saleIds) : [],
+		salesDetail: row.salesDetail ? JSON.parse(row.salesDetail) : []
 	};
 }

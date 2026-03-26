@@ -53,7 +53,8 @@ sqlite.exec(`
 
 // Migrations: add columns that may not exist yet
 const migrations: string[] = [
-	`ALTER TABLE sync_runs ADD COLUMN sale_ids TEXT`
+	`ALTER TABLE sync_runs ADD COLUMN sale_ids TEXT`,
+	`ALTER TABLE sync_runs ADD COLUMN sales_detail TEXT`
 ];
 
 for (const sql of migrations) {

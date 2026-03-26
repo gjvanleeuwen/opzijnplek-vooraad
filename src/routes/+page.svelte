@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import type { SyncRunRecord, SkuResult } from '$lib/types';
+	import type { SyncRunRecord, SkuResult, SaleDetail } from '$lib/types';
 	import type { PreviewResult, PreviewChange } from '$lib/server/sync';
 
 	let { data }: { data: PageData } = $props();
@@ -18,19 +18,14 @@
 	let expandedRunId = $state<number | null>(null);
 	let expandedPreviewSku = $state<string | null>(null);
 	let expandedSaleId = $state<string | null>(null);
-	let previewTab = $state<'sales' | 'skus'>('sales');
+	let expandedHistorySaleId = $state<string | null>(null);
+	let viewMode = $state<'sales' | 'skus'>('sales');
 	let error = $state('');
 
-	interface SaleGroup {
-		saleID: string;
-		time: string;
-		items: { sku: string; reason: string; qohChange: number; inventoryLogID: string }[];
-		totalDelta: number;
-	}
-
-	let previewSales = $derived.by(() => {
+	// Build sale groups from preview data
+	let previewSales = $derived.by((): SaleDetail[] => {
 		if (!preview) return [];
-		const salesMap = new Map<string, SaleGroup>();
+		const salesMap = new Map<string, SaleDetail>();
 		for (const change of preview.changes) {
 			for (const log of change.logs) {
 				const sid = log.saleID || 'no-sale';
@@ -109,6 +104,7 @@
 
 	function toggleRun(id: number) {
 		expandedRunId = expandedRunId === id ? null : id;
+		expandedHistorySaleId = null;
 	}
 
 	function statusColor(status: string): string {
@@ -146,6 +142,12 @@
 			case 'failed': return 'text-red-700';
 			default: return 'text-gray-700';
 		}
+	}
+
+	function reasonLabel(reason: string): string {
+		if (reason === 'removeInventoryForTransaction') return 'sale';
+		if (reason === 'addInventoryForTransaction') return 'return';
+		return reason;
 	}
 
 	function formatTime(iso: string | null): string {
@@ -209,29 +211,43 @@
 			</div>
 		{/if}
 
-		<!-- Sync status -->
+		<!-- Status bar: watermark + view mode -->
 		<div class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
 			<div class="flex items-center justify-between">
-				<div class="text-sm text-gray-700">
-					<span class="font-medium">Last processed log:</span>
-					<span class="font-mono">{currentWatermark}</span>
-					{#if watermarkInfo?.highestLogId}
-						<span class="ml-3 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
-							{watermarkInfo.highestLogId - currentWatermark} logs pending
-						</span>
-					{/if}
+				<div class="flex items-center gap-4 text-sm text-gray-700">
+					<div>
+						<span class="font-medium">Last processed log:</span>
+						<span class="ml-1 font-mono">{currentWatermark}</span>
+						{#if watermarkInfo?.highestLogId}
+							{@const pending = watermarkInfo.highestLogId - currentWatermark}
+							<span class="ml-2 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+								{pending > 0 ? `${pending} logs pending` : 'up to date'}
+							</span>
+						{/if}
+					</div>
+					<button
+						onclick={fetchWatermarkInfo}
+						disabled={loadingWatermark}
+						class="text-xs text-blue-600 hover:underline disabled:opacity-50"
+					>
+						{loadingWatermark ? 'Checking...' : 'Check for new logs'}
+					</button>
 				</div>
-				<button
-					onclick={fetchWatermarkInfo}
-					disabled={loadingWatermark}
-					class="text-xs text-blue-600 hover:underline disabled:opacity-50"
-				>
-					{loadingWatermark ? 'Checking...' : 'Check for new logs'}
-				</button>
+				<div class="flex rounded border border-gray-200">
+					<button
+						onclick={() => viewMode = 'sales'}
+						class="px-3 py-1 text-xs font-medium {viewMode === 'sales' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-50'}"
+					>
+						By sale
+					</button>
+					<button
+						onclick={() => viewMode = 'skus'}
+						class="px-3 py-1 text-xs font-medium {viewMode === 'skus' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-50'}"
+					>
+						By SKU
+					</button>
+				</div>
 			</div>
-			<p class="mt-2 text-xs text-gray-400">
-				After each sync the position advances automatically. Use "Preview changes" to inspect pending changes before syncing.
-			</p>
 		</div>
 
 		<!-- Actions -->
@@ -267,166 +283,155 @@
 
 		<!-- Preview panel -->
 		{#if preview}
-			<div class="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
-				<div class="mb-3 flex items-center justify-between">
-					<h2 class="font-semibold text-blue-900">Preview (dry run)</h2>
-					<button onclick={() => preview = null} class="text-sm text-blue-600 hover:underline">Close</button>
-				</div>
-				<div class="mb-3 flex flex-wrap gap-4 text-sm text-blue-800">
-					<span>Logs: {preview.logsFound}</span>
-					<span>Matched: {preview.saleLogsFound}</span>
-					<span>Changes: {preview.changes.length}</span>
-					<span>Watermark: {preview.watermarkBefore} → {preview.wouldAdvanceTo}</span>
-				</div>
-				{#if preview.reasonCounts && Object.keys(preview.reasonCounts).length > 0}
-					<div class="mb-3 flex flex-wrap gap-2">
-						{#each Object.entries(preview.reasonCounts) as [reason, count]}
-							<span class="rounded px-2 py-0.5 text-xs font-mono {['removeInventoryForTransaction', 'addInventoryForTransaction'].includes(reason) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
-								{reason}: {count}
-							</span>
-						{/each}
-					</div>
-				{/if}
-
-				<!-- Tabs -->
-				<div class="mb-3 flex gap-1">
-					<button
-						onclick={() => previewTab = 'sales'}
-						class="rounded px-3 py-1 text-xs font-medium {previewTab === 'sales' ? 'bg-blue-200 text-blue-900' : 'text-blue-600 hover:bg-blue-100'}"
-					>
-						By sale ({previewSales.length})
-					</button>
-					<button
-						onclick={() => previewTab = 'skus'}
-						class="rounded px-3 py-1 text-xs font-medium {previewTab === 'skus' ? 'bg-blue-200 text-blue-900' : 'text-blue-600 hover:bg-blue-100'}"
-					>
-						By SKU ({preview.changes.length})
-					</button>
-				</div>
-
-				{#if previewTab === 'sales'}
-					{#if previewSales.length > 0}
-						<div class="space-y-2">
-							{#each previewSales as sale}
-								<div class="rounded border border-blue-100 bg-white">
-									<button
-										class="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-blue-50/50"
-										onclick={() => expandedSaleId = expandedSaleId === sale.saleID ? null : sale.saleID}
-									>
-										<div class="flex items-center gap-3">
-											<span class="font-mono text-xs font-medium text-blue-800">
-												{sale.saleID === 'no-sale' ? 'No sale ID' : `Sale #${sale.saleID}`}
-											</span>
-											<span class="text-xs text-gray-500">{formatTime(sale.time)}</span>
-											<span class="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
-												{sale.items.length} item{sale.items.length !== 1 ? 's' : ''}
-											</span>
-										</div>
-										<span class="font-mono text-xs {sale.totalDelta > 0 ? 'text-green-700' : 'text-red-700'}">
-											{sale.totalDelta > 0 ? '+' : ''}{sale.totalDelta}
+			<div class="mb-6 rounded-lg border border-gray-200 bg-white">
+				<div class="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+					<div class="flex items-center gap-3">
+						<h2 class="font-semibold text-gray-900">Preview (dry run)</h2>
+						<span class="text-xs text-gray-500">Logs: <strong>{preview.logsFound}</strong></span>
+						<span class="text-xs text-gray-500">Matched: <strong>{preview.saleLogsFound}</strong></span>
+						<span class="text-xs text-gray-500">Changes: <strong>{preview.changes.length}</strong></span>
+						<span class="font-mono text-xs text-gray-400">#{preview.watermarkBefore} → #{preview.wouldAdvanceTo}</span>
+						{#if preview.reasonCounts && Object.keys(preview.reasonCounts).length > 0}
+							<details class="inline">
+								<summary class="cursor-pointer text-xs text-blue-600 hover:underline">log types</summary>
+								<div class="mt-1 flex flex-wrap gap-1">
+									{#each Object.entries(preview.reasonCounts) as [reason, count]}
+										<span class="rounded px-1.5 py-0.5 text-xs font-mono {['removeInventoryForTransaction', 'addInventoryForTransaction'].includes(reason) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
+											{reason}: {count}
 										</span>
-									</button>
-									{#if expandedSaleId === sale.saleID}
-										<div class="border-t border-blue-100 px-3 py-2">
-											<table class="w-full text-xs">
-												<thead>
-													<tr class="text-left text-blue-600">
-														<th class="pb-1">SKU</th>
-														<th class="pb-1">Reason</th>
-														<th class="pb-1">Qty</th>
-														<th class="pb-1">Log ID</th>
-													</tr>
-												</thead>
-												<tbody>
-													{#each sale.items as item}
-														<tr class="border-t border-blue-50">
-															<td class="py-0.5 font-mono">{item.sku}</td>
-															<td class="py-0.5">{item.reason === 'removeInventoryForTransaction' ? 'sale' : item.reason === 'addInventoryForTransaction' ? 'return' : item.reason}</td>
-															<td class="py-0.5 {item.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
-																{item.qohChange > 0 ? '+' : ''}{item.qohChange}
-															</td>
-															<td class="py-0.5 font-mono text-gray-400">{item.inventoryLogID}</td>
-														</tr>
-													{/each}
-												</tbody>
-											</table>
-										</div>
-									{/if}
+									{/each}
 								</div>
-							{/each}
-						</div>
-					{:else}
-						<p class="text-sm text-blue-700">No sales found in pending logs.</p>
-					{/if}
-				{:else}
-					{#if preview.changes.length > 0}
-						<table class="w-full text-sm">
-							<thead>
-								<tr class="text-left text-xs text-blue-700">
-									<th class="pb-1">SKU</th>
-									<th class="pb-1">Variant ID</th>
-									<th class="pb-1">Current</th>
-									<th class="pb-1">Delta</th>
-									<th class="pb-1">New</th>
-									<th class="pb-1">Status</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each preview.changes as change}
-									<tr
-										class="cursor-pointer border-t border-blue-100 hover:bg-blue-100/50"
-										onclick={() => expandedPreviewSku = expandedPreviewSku === change.sku ? null : change.sku}
-									>
-										<td class="py-1 font-mono text-xs">{change.sku}</td>
-										<td class="py-1">{change.ecomVariantId ?? '—'}</td>
-										<td class="py-1">{change.stockBefore ?? '—'}</td>
-										<td class="py-1 {change.delta > 0 ? 'text-green-700' : 'text-red-700'}">
-											{change.delta > 0 ? '+' : ''}{change.delta}
-										</td>
-										<td class="py-1">{change.stockAfter ?? '—'}</td>
-										<td class="py-1 {previewStatusColor(change.status)}">{previewStatusLabel(change.status)}</td>
-									</tr>
-									{#if expandedPreviewSku === change.sku}
-										<tr>
-											<td colspan="6" class="bg-blue-100/30 px-4 py-2">
+							</details>
+						{/if}
+					</div>
+					<button onclick={() => preview = null} class="text-sm text-gray-400 hover:text-gray-600">Close</button>
+				</div>
+
+				<div class="p-4">
+					{#if viewMode === 'sales'}
+						{#if previewSales.length > 0}
+							<div class="space-y-2">
+								{#each previewSales as sale}
+									<div class="rounded border border-gray-100">
+										<button
+											class="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
+											onclick={() => expandedSaleId = expandedSaleId === sale.saleID ? null : sale.saleID}
+										>
+											<div class="flex items-center gap-3">
+												<span class="font-mono text-xs font-medium">
+													{sale.saleID === 'no-sale' ? 'No sale ID' : `Sale #${sale.saleID}`}
+												</span>
+												<span class="text-xs text-gray-500">{formatTime(sale.time)}</span>
+												<span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+													{sale.items.length} item{sale.items.length !== 1 ? 's' : ''}
+												</span>
+											</div>
+											<span class="font-mono text-xs {sale.totalDelta > 0 ? 'text-green-700' : 'text-red-700'}">
+												{sale.totalDelta > 0 ? '+' : ''}{sale.totalDelta}
+											</span>
+										</button>
+										{#if expandedSaleId === sale.saleID}
+											<div class="border-t border-gray-100 px-3 py-2">
 												<table class="w-full text-xs">
 													<thead>
-														<tr class="text-left text-blue-600">
-															<th class="pb-1">Log ID</th>
+														<tr class="text-left text-gray-500">
+															<th class="pb-1">SKU</th>
 															<th class="pb-1">Reason</th>
 															<th class="pb-1">Qty</th>
-															<th class="pb-1">Sale ID</th>
-															<th class="pb-1">Time</th>
+															<th class="pb-1">Log ID</th>
 														</tr>
 													</thead>
 													<tbody>
-														{#each change.logs as log}
-															<tr class="border-t border-blue-100/50">
-																<td class="py-0.5 font-mono">{log.inventoryLogID}</td>
-																<td class="py-0.5">{log.reason}</td>
-																<td class="py-0.5 {log.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
-																	{log.qohChange > 0 ? '+' : ''}{log.qohChange}
+														{#each sale.items as item}
+															<tr class="border-t border-gray-50">
+																<td class="py-0.5 font-mono">{item.sku}</td>
+																<td class="py-0.5">{reasonLabel(item.reason)}</td>
+																<td class="py-0.5 {item.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
+																	{item.qohChange > 0 ? '+' : ''}{item.qohChange}
 																</td>
-																<td class="py-0.5 font-mono">{log.saleID ?? '—'}</td>
-																<td class="py-0.5 text-gray-500">{formatTime(log.createTime)}</td>
+																<td class="py-0.5 font-mono text-gray-400">{item.inventoryLogID}</td>
 															</tr>
 														{/each}
 													</tbody>
 												</table>
-											</td>
-										</tr>
-									{/if}
+											</div>
+										{/if}
+									</div>
 								{/each}
-							</tbody>
-						</table>
+							</div>
+						{:else}
+							<p class="text-sm text-gray-500">No sales found in pending logs.</p>
+						{/if}
 					{:else}
-						<p class="text-sm text-blue-700">No pending changes.</p>
+						{#if preview.changes.length > 0}
+							<table class="w-full text-sm">
+								<thead>
+									<tr class="text-left text-xs text-gray-500">
+										<th class="pb-1">SKU</th>
+										<th class="pb-1">Variant ID</th>
+										<th class="pb-1">Current</th>
+										<th class="pb-1">Delta</th>
+										<th class="pb-1">New</th>
+										<th class="pb-1">Status</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each preview.changes as change}
+										<tr
+											class="cursor-pointer border-t border-gray-100 hover:bg-gray-50"
+											onclick={() => expandedPreviewSku = expandedPreviewSku === change.sku ? null : change.sku}
+										>
+											<td class="py-1 font-mono text-xs">{change.sku}</td>
+											<td class="py-1">{change.ecomVariantId ?? '—'}</td>
+											<td class="py-1">{change.stockBefore ?? '—'}</td>
+											<td class="py-1 {change.delta > 0 ? 'text-green-700' : 'text-red-700'}">
+												{change.delta > 0 ? '+' : ''}{change.delta}
+											</td>
+											<td class="py-1">{change.stockAfter ?? '—'}</td>
+											<td class="py-1 {previewStatusColor(change.status)}">{previewStatusLabel(change.status)}</td>
+										</tr>
+										{#if expandedPreviewSku === change.sku}
+											<tr>
+												<td colspan="6" class="bg-gray-50 px-4 py-2">
+													<table class="w-full text-xs">
+														<thead>
+															<tr class="text-left text-gray-500">
+																<th class="pb-1">Log ID</th>
+																<th class="pb-1">Reason</th>
+																<th class="pb-1">Qty</th>
+																<th class="pb-1">Sale ID</th>
+																<th class="pb-1">Time</th>
+															</tr>
+														</thead>
+														<tbody>
+															{#each change.logs as log}
+																<tr class="border-t border-gray-100">
+																	<td class="py-0.5 font-mono">{log.inventoryLogID}</td>
+																	<td class="py-0.5">{reasonLabel(log.reason)}</td>
+																	<td class="py-0.5 {log.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
+																		{log.qohChange > 0 ? '+' : ''}{log.qohChange}
+																	</td>
+																	<td class="py-0.5 font-mono">{log.saleID ?? '—'}</td>
+																	<td class="py-0.5 text-gray-500">{formatTime(log.createTime)}</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
+												</td>
+											</tr>
+										{/if}
+									{/each}
+								</tbody>
+							</table>
+						{:else}
+							<p class="text-sm text-gray-500">No pending changes.</p>
+						{/if}
 					{/if}
-				{/if}
+				</div>
 			</div>
 		{/if}
 
-		<!-- Runs table -->
+		<!-- Sync history -->
 		<div class="rounded-lg border border-gray-200 bg-white">
 			<div class="border-b border-gray-200 px-4 py-3">
 				<h2 class="font-semibold text-gray-900">Sync history</h2>
@@ -508,7 +513,7 @@
 											<div class="mb-2 text-sm text-red-700">Error: {run.error}</div>
 										{/if}
 
-										<!-- Verification summary -->
+										<!-- Verification warnings -->
 										{#if run.verification && run.verification.warnings.length > 0}
 											<div class="mb-3 rounded border border-orange-200 bg-orange-50 p-2">
 												<p class="mb-1 text-xs font-semibold text-orange-800">Verification warnings:</p>
@@ -520,37 +525,97 @@
 											</div>
 										{/if}
 
-										{#if run.log.length > 0}
-											<table class="w-full text-xs">
-												<thead>
-													<tr class="text-left text-gray-500">
-														<th class="pb-1">SKU</th>
-														<th class="pb-1">Variant</th>
-														<th class="pb-1">Before</th>
-														<th class="pb-1">Delta</th>
-														<th class="pb-1">After</th>
-														<th class="pb-1">Status</th>
-														<th class="pb-1">Error</th>
-													</tr>
-												</thead>
-												<tbody>
-													{#each run.log as result}
-														<tr class="border-t border-gray-100">
-															<td class="py-1 font-mono">{result.sku}</td>
-															<td class="py-1">{result.ecomVariantId ?? '—'}</td>
-															<td class="py-1">{result.stockBefore ?? '—'}</td>
-															<td class="py-1 {result.delta > 0 ? 'text-green-700' : 'text-red-700'}">
-																{result.delta > 0 ? '+' : ''}{result.delta}
-															</td>
-															<td class="py-1">{result.stockAfter ?? '—'}</td>
-															<td class="py-1 {skuStatusColor(result.status)}">{result.status}</td>
-															<td class="py-1 text-gray-500">{result.error ?? ''}</td>
-														</tr>
+										{#if viewMode === 'sales'}
+											<!-- Sales view -->
+											{#if run.salesDetail?.length > 0}
+												<div class="space-y-2">
+													{#each run.salesDetail as sale}
+														<div class="rounded border border-gray-200 bg-white">
+															<button
+																class="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
+																onclick={(e) => { e.stopPropagation(); expandedHistorySaleId = expandedHistorySaleId === `${run.id}-${sale.saleID}` ? null : `${run.id}-${sale.saleID}`; }}
+															>
+																<div class="flex items-center gap-3">
+																	<span class="font-mono text-xs font-medium">
+																		{sale.saleID === 'no-sale' ? 'No sale ID' : `Sale #${sale.saleID}`}
+																	</span>
+																	<span class="text-xs text-gray-500">{formatTime(sale.time)}</span>
+																	<span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+																		{sale.items.length} item{sale.items.length !== 1 ? 's' : ''}
+																	</span>
+																</div>
+																<span class="font-mono text-xs {sale.totalDelta > 0 ? 'text-green-700' : 'text-red-700'}">
+																	{sale.totalDelta > 0 ? '+' : ''}{sale.totalDelta}
+																</span>
+															</button>
+															{#if expandedHistorySaleId === `${run.id}-${sale.saleID}`}
+																<div class="border-t border-gray-100 px-3 py-2">
+																	<table class="w-full text-xs">
+																		<thead>
+																			<tr class="text-left text-gray-500">
+																				<th class="pb-1">SKU</th>
+																				<th class="pb-1">Reason</th>
+																				<th class="pb-1">Qty</th>
+																				<th class="pb-1">Log ID</th>
+																			</tr>
+																		</thead>
+																		<tbody>
+																			{#each sale.items as item}
+																				<tr class="border-t border-gray-50">
+																					<td class="py-0.5 font-mono">{item.sku}</td>
+																					<td class="py-0.5">{reasonLabel(item.reason)}</td>
+																					<td class="py-0.5 {item.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
+																						{item.qohChange > 0 ? '+' : ''}{item.qohChange}
+																					</td>
+																					<td class="py-0.5 font-mono text-gray-400">{item.inventoryLogID}</td>
+																				</tr>
+																			{/each}
+																		</tbody>
+																	</table>
+																</div>
+															{/if}
+														</div>
 													{/each}
-												</tbody>
-											</table>
+												</div>
+											{:else if run.saleIds?.length > 0}
+												<p class="text-xs text-gray-500">Sale detail not available for older runs. Sale IDs: {run.saleIds.map(id => `#${id}`).join(', ')}</p>
+											{:else}
+												<p class="text-xs text-gray-500">No sales in this run.</p>
+											{/if}
 										{:else}
-											<p class="text-gray-500">No SKU details for this run.</p>
+											<!-- SKU view -->
+											{#if run.log.length > 0}
+												<table class="w-full text-xs">
+													<thead>
+														<tr class="text-left text-gray-500">
+															<th class="pb-1">SKU</th>
+															<th class="pb-1">Variant</th>
+															<th class="pb-1">Before</th>
+															<th class="pb-1">Delta</th>
+															<th class="pb-1">After</th>
+															<th class="pb-1">Status</th>
+															<th class="pb-1">Error</th>
+														</tr>
+													</thead>
+													<tbody>
+														{#each run.log as result}
+															<tr class="border-t border-gray-100">
+																<td class="py-1 font-mono">{result.sku}</td>
+																<td class="py-1">{result.ecomVariantId ?? '—'}</td>
+																<td class="py-1">{result.stockBefore ?? '—'}</td>
+																<td class="py-1 {result.delta > 0 ? 'text-green-700' : 'text-red-700'}">
+																	{result.delta > 0 ? '+' : ''}{result.delta}
+																</td>
+																<td class="py-1">{result.stockAfter ?? '—'}</td>
+																<td class="py-1 {skuStatusColor(result.status)}">{result.status}</td>
+																<td class="py-1 text-gray-500">{result.error ?? ''}</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+											{:else}
+												<p class="text-gray-500">No SKU details for this run.</p>
+											{/if}
 										{/if}
 									</td>
 								</tr>

@@ -27,7 +27,8 @@ export const syncRuns = sqliteTable('sync_runs', {
 	startedAt: text('started_at').notNull(),
 	finishedAt: text('finished_at'),
 	verification: text('verification'), // JSON: verification results
-	saleIds: text('sale_ids') // JSON array of sale IDs
+	saleIds: text('sale_ids'), // JSON array of sale IDs
+	salesDetail: text('sales_detail') // JSON: per-sale item breakdown
 });
 
 export const syncWarnings = sqliteTable('sync_warnings', {

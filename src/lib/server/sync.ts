@@ -15,7 +15,9 @@ import type {
 	SyncWarning,
 	VerificationResult,
 	InventoryLogEntry,
-	RSeriesItem
+	RSeriesItem,
+	SaleDetail,
+	SaleDetailItem
 } from '$lib/types';
 import { SALE_REASONS } from '$lib/types';
 
@@ -331,20 +333,40 @@ export async function runSync(triggeredBy: TriggerSource): Promise<SyncRunRecord
 				log: [],
 				finishedAt: now
 			});
-			return { ...run, status: 'success', logsProcessed: 0, log: [], verification: null, saleIds: [], finishedAt: now };
+			return { ...run, status: 'success', logsProcessed: 0, log: [], verification: null, saleIds: [], salesDetail: [], finishedAt: now };
 		}
 
 		const { aggregated, skipped, highestLogId } = await aggregateLogs(logs);
 		const results: SkuResult[] = [...skipped];
 
-		// Collect unique sale IDs from all aggregated logs
-		const saleIdSet = new Set<string>();
-		for (const { logs: skuLogs } of aggregated) {
+		// Build per-sale breakdown from all aggregated logs
+		const salesMap = new Map<string, SaleDetail>();
+		for (const { sku, logs: skuLogs } of aggregated) {
 			for (const log of skuLogs) {
-				if (log.saleID) saleIdSet.add(log.saleID);
+				const sid = log.saleID || 'no-sale';
+				const item: SaleDetailItem = {
+					sku,
+					reason: log.reason,
+					qohChange: log.qohChange,
+					inventoryLogID: log.inventoryLogID
+				};
+				const existing = salesMap.get(sid);
+				if (existing) {
+					existing.items.push(item);
+					existing.totalDelta += log.qohChange;
+					if (log.createTime < existing.time) existing.time = log.createTime;
+				} else {
+					salesMap.set(sid, {
+						saleID: sid,
+						time: log.createTime,
+						items: [item],
+						totalDelta: log.qohChange
+					});
+				}
 			}
 		}
-		const saleIds = [...saleIdSet];
+		const salesDetail = [...salesMap.values()].sort((a, b) => b.time.localeCompare(a.time));
+		const saleIds = salesDetail.map(s => s.saleID).filter(id => id !== 'no-sale');
 
 		for (const { sku, skuCandidates: candidates, netDelta } of aggregated) {
 			try {
@@ -430,6 +452,7 @@ export async function runSync(triggeredBy: TriggerSource): Promise<SyncRunRecord
 			log: results,
 			verification: verification ?? undefined,
 			saleIds,
+			salesDetail,
 			finishedAt: now
 		});
 
@@ -445,6 +468,7 @@ export async function runSync(triggeredBy: TriggerSource): Promise<SyncRunRecord
 			log: results,
 			verification,
 			saleIds,
+			salesDetail,
 			finishedAt: now
 		};
 	} catch (e) {
