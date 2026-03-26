@@ -24,7 +24,7 @@ export interface RSeriesTokenResponse {
 	token_type: string;
 }
 
-export const SALE_REASONS = ['Sale', 'Return'] as const;
+export const SALE_REASONS = ['removeInventoryForTransaction', 'addInventoryForTransaction'] as const;
 
 // ── eCom C-Series (webshopapp) ───────────────────────────────────────
 

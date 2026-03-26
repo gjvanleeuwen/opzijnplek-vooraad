@@ -136,6 +136,7 @@ export interface PreviewChange extends SkuResult {
 export interface PreviewResult {
 	logsFound: number;
 	saleLogsFound: number;
+	reasonCounts: Record<string, number>;
 	changes: PreviewChange[];
 	skipped: SkuResult[];
 	watermarkBefore: number;
@@ -147,9 +148,13 @@ export async function previewSync(filterSku?: string): Promise<PreviewResult> {
 	const logs = await fetchInventoryLogs(watermarkBefore);
 
 	const { aggregated, skipped, highestLogId } = await aggregateLogs(logs);
-	const saleLogsCount = logs.filter((l) =>
-		SALE_REASONS.includes(l.reason as (typeof SALE_REASONS)[number])
-	).length;
+
+	const reasonCounts: Record<string, number> = {};
+	let saleLogsCount = 0;
+	for (const l of logs) {
+		reasonCounts[l.reason] = (reasonCounts[l.reason] || 0) + 1;
+		if (SALE_REASONS.includes(l.reason as (typeof SALE_REASONS)[number])) saleLogsCount++;
+	}
 
 	const changes: PreviewChange[] = [];
 
@@ -203,6 +208,7 @@ export async function previewSync(filterSku?: string): Promise<PreviewResult> {
 	return {
 		logsFound: logs.length,
 		saleLogsFound: saleLogsCount,
+		reasonCounts,
 		changes,
 		skipped: filterSku ? [] : skipped,
 		watermarkBefore,

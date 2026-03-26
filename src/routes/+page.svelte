@@ -330,12 +330,21 @@
 					<h2 class="font-semibold text-blue-900">Preview (dry run)</h2>
 					<button onclick={() => preview = null} class="text-sm text-blue-600 hover:underline">Close</button>
 				</div>
-				<div class="mb-3 flex gap-4 text-sm text-blue-800">
-					<span>Logs found: {preview.logsFound}</span>
-					<span>Sale logs: {preview.saleLogsFound}</span>
+				<div class="mb-3 flex flex-wrap gap-4 text-sm text-blue-800">
+					<span>Logs: {preview.logsFound}</span>
+					<span>Matched: {preview.saleLogsFound}</span>
 					<span>Changes: {preview.changes.length}</span>
 					<span>Watermark: {preview.watermarkBefore} → {preview.wouldAdvanceTo}</span>
 				</div>
+				{#if preview.reasonCounts && Object.keys(preview.reasonCounts).length > 0}
+					<div class="mb-3 flex flex-wrap gap-2">
+						{#each Object.entries(preview.reasonCounts) as [reason, count]}
+							<span class="rounded px-2 py-0.5 text-xs font-mono {['removeInventoryForTransaction', 'addInventoryForTransaction'].includes(reason) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
+								{reason}: {count}
+							</span>
+						{/each}
+					</div>
+				{/if}
 
 				{#if preview.changes.length > 0}
 					<table class="w-full text-sm">
