@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { SyncRunRecord, SkuResult, SyncWarning } from '$lib/types';
-	import type { PreviewResult } from '$lib/server/sync';
+	import type { PreviewResult, PreviewChange } from '$lib/server/sync';
 
 	let { data }: { data: PageData } = $props();
 
@@ -15,6 +15,7 @@
 	let preview = $state<PreviewResult | null>(null);
 	let previewSku = $state('');
 	let expandedRunId = $state<number | null>(null);
+	let expandedPreviewSku = $state<string | null>(null);
 	let error = $state('');
 
 	async function triggerSync() {
@@ -250,11 +251,15 @@
 								<th class="pb-1">Delta</th>
 								<th class="pb-1">New</th>
 								<th class="pb-1">Status</th>
+								<th class="pb-1">Sales</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each preview.changes as change}
-								<tr class="border-t border-blue-100">
+								<tr
+									class="cursor-pointer border-t border-blue-100 hover:bg-blue-100/50"
+									onclick={() => expandedPreviewSku = expandedPreviewSku === change.sku ? null : change.sku}
+								>
 									<td class="py-1 font-mono text-xs">{change.sku}</td>
 									<td class="py-1">{change.ecomVariantId ?? '—'}</td>
 									<td class="py-1">{change.stockBefore ?? '—'}</td>
@@ -263,7 +268,38 @@
 									</td>
 									<td class="py-1">{change.stockAfter ?? '—'}</td>
 									<td class="py-1 {skuStatusColor(change.status)}">{change.status}</td>
+									<td class="py-1 text-blue-600">{change.logs.length} log{change.logs.length !== 1 ? 's' : ''}</td>
 								</tr>
+								{#if expandedPreviewSku === change.sku}
+									<tr>
+										<td colspan="7" class="bg-blue-100/30 px-4 py-2">
+											<table class="w-full text-xs">
+												<thead>
+													<tr class="text-left text-blue-600">
+														<th class="pb-1">Log ID</th>
+														<th class="pb-1">Reason</th>
+														<th class="pb-1">Qty</th>
+														<th class="pb-1">Sale ID</th>
+														<th class="pb-1">Time</th>
+													</tr>
+												</thead>
+												<tbody>
+													{#each change.logs as log}
+														<tr class="border-t border-blue-100/50">
+															<td class="py-0.5 font-mono">{log.inventoryLogID}</td>
+															<td class="py-0.5">{log.reason}</td>
+															<td class="py-0.5 {log.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
+																{log.qohChange > 0 ? '+' : ''}{log.qohChange}
+															</td>
+															<td class="py-0.5 font-mono">{log.saleID ?? '—'}</td>
+															<td class="py-0.5 text-gray-500">{formatTime(log.createTime)}</td>
+														</tr>
+													{/each}
+												</tbody>
+											</table>
+										</td>
+									</tr>
+								{/if}
 							{/each}
 						</tbody>
 					</table>

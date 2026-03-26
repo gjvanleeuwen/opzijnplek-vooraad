@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { json, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { setSetting } from '$lib/server/store';
 import type { RequestHandler } from './$types';
@@ -57,10 +57,5 @@ export const GET: RequestHandler = async ({ url }) => {
 	}
 	setSetting('ls_retail_refresh_token', data.refresh_token);
 
-	return json({
-		message: 'OAuth successful! Account ID and refresh token saved to database.',
-		account_id: accountId,
-		account_id_saved: !!accountId,
-		refresh_token_saved: true
-	});
+	redirect(302, '/');
 };

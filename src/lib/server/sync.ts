@@ -37,16 +37,25 @@ function skuFromItem(item: RSeriesItem): string {
 
 // ── Aggregation ─────────────────────────────────────────────────────
 
+export interface LogDetail {
+	inventoryLogID: string;
+	reason: string;
+	qohChange: number;
+	saleID?: string;
+	createTime: string;
+}
+
 interface AggregatedSku {
 	sku: string;
 	netDelta: number;
 	itemId: string;
+	logs: LogDetail[];
 }
 
 async function aggregateLogs(
 	logs: InventoryLogEntry[]
 ): Promise<{ aggregated: AggregatedSku[]; skipped: SkuResult[]; highestLogId: number }> {
-	const skuDeltas = new Map<string, { netDelta: number; itemId: string }>();
+	const skuDeltas = new Map<string, { netDelta: number; itemId: string; logs: LogDetail[] }>();
 	const skipped: SkuResult[] = [];
 	let highestLogId = 0;
 
@@ -78,11 +87,20 @@ async function aggregateLogs(
 				continue;
 			}
 
+			const logDetail: LogDetail = {
+				inventoryLogID: entry.inventoryLogID,
+				reason: entry.reason,
+				qohChange: delta,
+				saleID: entry.saleID,
+				createTime: entry.createTime
+			};
+
 			const existing = skuDeltas.get(sku);
 			if (existing) {
 				existing.netDelta += delta;
+				existing.logs.push(logDetail);
 			} else {
-				skuDeltas.set(sku, { netDelta: delta, itemId: entry.itemID });
+				skuDeltas.set(sku, { netDelta: delta, itemId: entry.itemID, logs: [logDetail] });
 			}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
@@ -100,9 +118,9 @@ async function aggregateLogs(
 
 	// Filter out net-zero changes
 	const aggregated: AggregatedSku[] = [];
-	for (const [sku, { netDelta, itemId }] of skuDeltas) {
+	for (const [sku, { netDelta, itemId, logs: skuLogs }] of skuDeltas) {
 		if (netDelta !== 0) {
-			aggregated.push({ sku, netDelta, itemId });
+			aggregated.push({ sku, netDelta, itemId, logs: skuLogs });
 		}
 	}
 
@@ -111,10 +129,14 @@ async function aggregateLogs(
 
 // ── Preview (dry run) ───────────────────────────────────────────────
 
+export interface PreviewChange extends SkuResult {
+	logs: LogDetail[];
+}
+
 export interface PreviewResult {
 	logsFound: number;
 	saleLogsFound: number;
-	changes: SkuResult[];
+	changes: PreviewChange[];
 	skipped: SkuResult[];
 	watermarkBefore: number;
 	wouldAdvanceTo: number;
@@ -129,9 +151,9 @@ export async function previewSync(filterSku?: string): Promise<PreviewResult> {
 		SALE_REASONS.includes(l.reason as (typeof SALE_REASONS)[number])
 	).length;
 
-	const changes: SkuResult[] = [];
+	const changes: PreviewChange[] = [];
 
-	for (const { sku, netDelta } of aggregated) {
+	for (const { sku, netDelta, logs: skuLogs } of aggregated) {
 		if (filterSku && sku !== filterSku) continue;
 
 		try {
@@ -145,7 +167,8 @@ export async function previewSync(filterSku?: string): Promise<PreviewResult> {
 					delta: netDelta,
 					stockAfter: null,
 					status: 'skipped',
-					error: 'No matching eCom variant found'
+					error: 'No matching eCom variant found',
+					logs: skuLogs
 				});
 				continue;
 			}
@@ -159,7 +182,8 @@ export async function previewSync(filterSku?: string): Promise<PreviewResult> {
 				stockBefore,
 				delta: netDelta,
 				stockAfter: stockAfter === stockBefore ? stockBefore : stockAfter,
-				status: stockAfter === stockBefore ? 'skipped' : 'updated'
+				status: stockAfter === stockBefore ? 'skipped' : 'updated',
+				logs: skuLogs
 			});
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
@@ -170,7 +194,8 @@ export async function previewSync(filterSku?: string): Promise<PreviewResult> {
 				delta: netDelta,
 				stockAfter: null,
 				status: 'failed',
-				error: message
+				error: message,
+				logs: skuLogs
 			});
 		}
 	}
