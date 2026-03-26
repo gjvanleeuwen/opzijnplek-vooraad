@@ -51,4 +51,17 @@ sqlite.exec(`
 	);
 `);
 
+// Migrations: add columns that may not exist yet
+const migrations: string[] = [
+	`ALTER TABLE sync_runs ADD COLUMN sale_ids TEXT`
+];
+
+for (const sql of migrations) {
+	try {
+		sqlite.exec(sql);
+	} catch {
+		// Column already exists — ignore
+	}
+}
+
 export const db = drizzle(sqlite, { schema });
