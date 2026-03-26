@@ -1,17 +1,14 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import type { SyncRunRecord, SkuResult, SyncWarning } from '$lib/types';
+	import type { SyncRunRecord, SkuResult } from '$lib/types';
 	import type { PreviewResult, PreviewChange } from '$lib/server/sync';
 
 	let { data }: { data: PageData } = $props();
 
 	let extraRuns = $state<typeof data.runs | null>(null);
-	let extraWarnings = $state<typeof data.warnings | null>(null);
 	let runs = $derived(extraRuns ?? data.runs);
-	let warnings = $derived(extraWarnings ?? data.warnings);
 	let retailConnected = $derived(data.retailConnected);
 	let currentWatermark = $state(data.watermark);
-	let watermarkInput = $state(String(data.watermark));
 	let watermarkInfo = $state<{ totalLogs: number | null; highestLogId: number | null } | null>(null);
 	let loadingWatermark = $state(false);
 	let syncing = $state(false);
@@ -64,7 +61,7 @@
 				const body = await res.json();
 				error = body.error || `Sync failed (${res.status})`;
 			}
-			await Promise.all([refreshRuns(), refreshWarnings()]);
+			await refreshRuns();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -98,7 +95,6 @@
 			if (res.ok) {
 				const data = await res.json();
 				currentWatermark = data.current;
-				watermarkInput = String(data.current);
 				watermarkInfo = { totalLogs: data.totalLogs, highestLogId: data.highestLogId };
 			}
 		} finally {
@@ -106,35 +102,9 @@
 		}
 	}
 
-	async function setWatermark(value: number) {
-		error = '';
-		const res = await fetch('/api/sync/watermark', {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ watermark: value })
-		});
-		if (res.ok) {
-			currentWatermark = value;
-			watermarkInput = String(value);
-		} else {
-			const body = await res.json();
-			error = body.error || 'Failed to set watermark';
-		}
-	}
-
 	async function refreshRuns() {
 		const res = await fetch('/api/sync/runs');
 		if (res.ok) extraRuns = await res.json();
-	}
-
-	async function refreshWarnings() {
-		const res = await fetch('/api/sync/warnings');
-		if (res.ok) extraWarnings = await res.json();
-	}
-
-	async function acknowledgeWarning(id: number) {
-		await fetch(`/api/sync/warnings/${id}`, { method: 'POST' });
-		await refreshWarnings();
 	}
 
 	function toggleRun(id: number) {
@@ -175,16 +145,6 @@
 			case 'skipped': return 'text-yellow-700';
 			case 'failed': return 'text-red-700';
 			default: return 'text-gray-700';
-		}
-	}
-
-	function warningTypeColor(type: string): string {
-		switch (type) {
-			case 'stock_mismatch': return 'bg-red-100 text-red-800';
-			case 'negative_stock': return 'bg-orange-100 text-orange-800';
-			case 'zero_stock': return 'bg-yellow-100 text-yellow-800';
-			case 'verification_failed': return 'bg-red-100 text-red-800';
-			default: return 'bg-gray-100 text-gray-800';
 		}
 	}
 
@@ -235,39 +195,6 @@
 			</div>
 		{/if}
 
-		<!-- Warnings banner -->
-		{#if warnings.length > 0}
-			<div class="mb-6 rounded-lg border border-orange-200 bg-orange-50 p-4">
-				<div class="mb-2 flex items-center justify-between">
-					<h2 class="font-semibold text-orange-900">Warnings ({warnings.length})</h2>
-				</div>
-				<div class="space-y-2">
-					{#each warnings as warning}
-						<div class="flex items-start justify-between rounded border border-orange-100 bg-white p-2 text-sm">
-							<div>
-								<span class="rounded px-1.5 py-0.5 text-xs font-medium {warningTypeColor(warning.type)}">
-									{warning.type.replace('_', ' ')}
-								</span>
-								<span class="ml-2 font-mono text-xs">{warning.sku}</span>
-								<span class="ml-2 text-gray-600">{warning.message}</span>
-								{#if warning.expected !== null && warning.actual !== null}
-									<span class="ml-2 text-xs text-gray-400">
-										(expected: {warning.expected}, actual: {warning.actual})
-									</span>
-								{/if}
-							</div>
-							<button
-								onclick={() => acknowledgeWarning(warning.id)}
-								class="ml-2 shrink-0 text-xs text-orange-600 hover:underline"
-							>
-								dismiss
-							</button>
-						</div>
-					{/each}
-				</div>
-			</div>
-		{/if}
-
 		<!-- Connection status -->
 		{#if !retailConnected}
 			<div class="mb-4 rounded border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm">
@@ -282,68 +209,28 @@
 			</div>
 		{/if}
 
-		<!-- Watermark -->
+		<!-- Sync status -->
 		<div class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
-			<div class="mb-2 flex items-center justify-between">
-				<h2 class="text-sm font-semibold text-gray-900">Watermark</h2>
+			<div class="flex items-center justify-between">
+				<div class="text-sm text-gray-700">
+					<span class="font-medium">Last processed log:</span>
+					<span class="font-mono">{currentWatermark}</span>
+					{#if watermarkInfo?.highestLogId}
+						<span class="ml-3 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+							{watermarkInfo.highestLogId - currentWatermark} logs pending
+						</span>
+					{/if}
+				</div>
 				<button
 					onclick={fetchWatermarkInfo}
 					disabled={loadingWatermark}
 					class="text-xs text-blue-600 hover:underline disabled:opacity-50"
 				>
-					{loadingWatermark ? 'Loading...' : 'Refresh from R-Series'}
+					{loadingWatermark ? 'Checking...' : 'Check for new logs'}
 				</button>
 			</div>
-			<div class="flex flex-wrap items-end gap-3">
-				<div>
-					<label for="watermarkInput" class="block text-xs text-gray-500">Current position (log ID)</label>
-					<input
-						id="watermarkInput"
-						type="number"
-						bind:value={watermarkInput}
-						min="0"
-						class="mt-1 w-32 rounded border border-gray-300 px-3 py-1.5 text-sm font-mono"
-					/>
-				</div>
-				<button
-					onclick={() => setWatermark(parseInt(watermarkInput) || 0)}
-					disabled={parseInt(watermarkInput) === currentWatermark}
-					class="rounded bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 disabled:opacity-30"
-				>
-					Set watermark
-				</button>
-				{#if watermarkInfo?.highestLogId}
-					<button
-						onclick={() => { watermarkInput = String(watermarkInfo!.highestLogId! - 10); setWatermark(watermarkInfo!.highestLogId! - 10); }}
-						class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-					>
-						Last 10 logs
-					</button>
-					<button
-						onclick={() => { watermarkInput = String(watermarkInfo!.highestLogId! - 50); setWatermark(watermarkInfo!.highestLogId! - 50); }}
-						class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-					>
-						Last 50 logs
-					</button>
-					<button
-						onclick={() => { watermarkInput = String(watermarkInfo!.highestLogId!); setWatermark(watermarkInfo!.highestLogId!); }}
-						class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-					>
-						Skip to latest
-					</button>
-				{/if}
-			</div>
-			{#if watermarkInfo}
-				<div class="mt-2 text-xs text-gray-500">
-					R-Series: {watermarkInfo.totalLogs ?? '?'} total logs, highest ID: {watermarkInfo.highestLogId ?? '?'}
-					{#if watermarkInfo.highestLogId}
-						— {watermarkInfo.highestLogId - currentWatermark} logs pending
-					{/if}
-				</div>
-			{/if}
 			<p class="mt-2 text-xs text-gray-400">
-				The watermark tracks which inventory log was last processed. After a sync, it advances automatically.
-				To test, set it near the highest ID (e.g. "Last 10 logs"), then use "Preview changes" to inspect before syncing.
+				After each sync the position advances automatically. Use "Preview changes" to inspect pending changes before syncing.
 			</p>
 		</div>
 
@@ -558,6 +445,7 @@
 							<th class="px-4 py-2">Skipped</th>
 							<th class="px-4 py-2">Failed</th>
 							<th class="px-4 py-2">Log IDs</th>
+							<th class="px-4 py-2">Sales</th>
 							<th class="px-4 py-2">Duration</th>
 							<th class="px-4 py-2">Time</th>
 						</tr>
@@ -599,6 +487,15 @@
 										—
 									{/if}
 								</td>
+								<td class="px-4 py-2">
+									{#if run.saleIds?.length > 0}
+										<span class="font-mono text-xs text-gray-600">
+											{run.saleIds.map(id => `#${id}`).join(', ')}
+										</span>
+									{:else}
+										<span class="text-xs text-gray-400">—</span>
+									{/if}
+								</td>
 								<td class="px-4 py-2">{duration(run.startedAt, run.finishedAt)}</td>
 								<td class="px-4 py-2 text-gray-500">{formatTime(run.finishedAt)}</td>
 							</tr>
@@ -606,7 +503,7 @@
 							<!-- Expanded detail -->
 							{#if expandedRunId === run.id}
 								<tr>
-									<td colspan="9" class="bg-gray-50 px-4 py-3">
+									<td colspan="10" class="bg-gray-50 px-4 py-3">
 										{#if run.error}
 											<div class="mb-2 text-sm text-red-700">Error: {run.error}</div>
 										{/if}

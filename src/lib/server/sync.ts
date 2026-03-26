@@ -331,11 +331,20 @@ export async function runSync(triggeredBy: TriggerSource): Promise<SyncRunRecord
 				log: [],
 				finishedAt: now
 			});
-			return { ...run, status: 'success', logsProcessed: 0, log: [], verification: null, finishedAt: now };
+			return { ...run, status: 'success', logsProcessed: 0, log: [], verification: null, saleIds: [], finishedAt: now };
 		}
 
 		const { aggregated, skipped, highestLogId } = await aggregateLogs(logs);
 		const results: SkuResult[] = [...skipped];
+
+		// Collect unique sale IDs from all aggregated logs
+		const saleIdSet = new Set<string>();
+		for (const { logs: skuLogs } of aggregated) {
+			for (const log of skuLogs) {
+				if (log.saleID) saleIdSet.add(log.saleID);
+			}
+		}
+		const saleIds = [...saleIdSet];
 
 		for (const { sku, skuCandidates: candidates, netDelta } of aggregated) {
 			try {
@@ -420,6 +429,7 @@ export async function runSync(triggeredBy: TriggerSource): Promise<SyncRunRecord
 			watermarkAfter: status !== 'failed' ? highestLogId : watermarkBefore,
 			log: results,
 			verification: verification ?? undefined,
+			saleIds,
 			finishedAt: now
 		});
 
@@ -434,6 +444,7 @@ export async function runSync(triggeredBy: TriggerSource): Promise<SyncRunRecord
 			watermarkAfter: status !== 'failed' ? highestLogId : watermarkBefore,
 			log: results,
 			verification,
+			saleIds,
 			finishedAt: now
 		};
 	} catch (e) {

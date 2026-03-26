@@ -90,4 +90,5 @@ export interface SyncRunRecord {
 	startedAt: string;
 	finishedAt: string | null;
 	verification: VerificationResult | null;
+	saleIds: string[];
 }

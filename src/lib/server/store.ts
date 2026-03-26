@@ -85,16 +85,18 @@ export function updateSyncRun(
 		watermarkAfter?: number;
 		log?: SkuResult[];
 		verification?: VerificationResult;
+		saleIds?: string[];
 		error?: string | null;
 		finishedAt?: string;
 	}
 ): void {
-	const { log, verification, ...rest } = data;
+	const { log, verification, saleIds, ...rest } = data;
 	db.update(syncRuns)
 		.set({
 			...rest,
 			...(log !== undefined ? { log: JSON.stringify(log) } : {}),
-			...(verification !== undefined ? { verification: JSON.stringify(verification) } : {})
+			...(verification !== undefined ? { verification: JSON.stringify(verification) } : {}),
+			...(saleIds !== undefined ? { saleIds: JSON.stringify(saleIds) } : {})
 		})
 		.where(eq(syncRuns.id, id))
 		.run();
@@ -175,6 +177,7 @@ function rowToRecord(row: typeof syncRuns.$inferSelect): SyncRunRecord {
 		error: row.error,
 		startedAt: row.startedAt,
 		finishedAt: row.finishedAt,
-		verification: row.verification ? JSON.parse(row.verification) : null
+		verification: row.verification ? JSON.parse(row.verification) : null,
+		saleIds: row.saleIds ? JSON.parse(row.saleIds) : []
 	};
 }
