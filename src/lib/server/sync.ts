@@ -31,8 +31,10 @@ async function resolveItem(itemId: string): Promise<RSeriesItem> {
 	return item;
 }
 
-function skuFromItem(item: RSeriesItem): string {
-	return item.customSku || item.systemSku || item.ean || item.upc || '';
+function skuCandidates(item: RSeriesItem): string[] {
+	// Return all non-empty identifiers to try, in priority order
+	return [item.customSku, item.ean, item.upc, item.systemSku, item.manufacturerSku]
+		.filter((s): s is string => !!s && s.trim() !== '');
 }
 
 // ── Aggregation ─────────────────────────────────────────────────────
@@ -47,6 +49,7 @@ export interface LogDetail {
 
 interface AggregatedSku {
 	sku: string;
+	skuCandidates: string[];
 	netDelta: number;
 	itemId: string;
 	logs: LogDetail[];
@@ -55,7 +58,7 @@ interface AggregatedSku {
 async function aggregateLogs(
 	logs: InventoryLogEntry[]
 ): Promise<{ aggregated: AggregatedSku[]; skipped: SkuResult[]; highestLogId: number }> {
-	const skuDeltas = new Map<string, { netDelta: number; itemId: string; logs: LogDetail[] }>();
+	const skuDeltas = new Map<string, { candidates: string[]; netDelta: number; itemId: string; logs: LogDetail[] }>();
 	const skipped: SkuResult[] = [];
 	let highestLogId = 0;
 
@@ -72,9 +75,9 @@ async function aggregateLogs(
 
 		try {
 			const item = await resolveItem(entry.itemID);
-			const sku = skuFromItem(item);
+			const candidates = skuCandidates(item);
 
-			if (!sku) {
+			if (candidates.length === 0) {
 				skipped.push({
 					sku: `item:${entry.itemID}`,
 					ecomVariantId: null,
@@ -87,6 +90,8 @@ async function aggregateLogs(
 				continue;
 			}
 
+			const primarySku = candidates[0];
+
 			const logDetail: LogDetail = {
 				inventoryLogID: entry.inventoryLogID,
 				reason: entry.reason,
@@ -95,12 +100,12 @@ async function aggregateLogs(
 				createTime: entry.createTime
 			};
 
-			const existing = skuDeltas.get(sku);
+			const existing = skuDeltas.get(primarySku);
 			if (existing) {
 				existing.netDelta += delta;
 				existing.logs.push(logDetail);
 			} else {
-				skuDeltas.set(sku, { netDelta: delta, itemId: entry.itemID, logs: [logDetail] });
+				skuDeltas.set(primarySku, { candidates, netDelta: delta, itemId: entry.itemID, logs: [logDetail] });
 			}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
@@ -118,9 +123,9 @@ async function aggregateLogs(
 
 	// Filter out net-zero changes
 	const aggregated: AggregatedSku[] = [];
-	for (const [sku, { netDelta, itemId, logs: skuLogs }] of skuDeltas) {
+	for (const [sku, { candidates, netDelta, itemId, logs: skuLogs }] of skuDeltas) {
 		if (netDelta !== 0) {
-			aggregated.push({ sku, netDelta, itemId, logs: skuLogs });
+			aggregated.push({ sku, skuCandidates: candidates, netDelta, itemId, logs: skuLogs });
 		}
 	}
 
@@ -158,11 +163,11 @@ export async function previewSync(filterSku?: string): Promise<PreviewResult> {
 
 	const changes: PreviewChange[] = [];
 
-	for (const { sku, netDelta, logs: skuLogs } of aggregated) {
+	for (const { sku, skuCandidates: candidates, netDelta, logs: skuLogs } of aggregated) {
 		if (filterSku && sku !== filterSku) continue;
 
 		try {
-			const variant = await findVariantBySku(sku);
+			const variant = await findVariantBySku(candidates);
 
 			if (!variant) {
 				changes.push({
@@ -332,9 +337,9 @@ export async function runSync(triggeredBy: TriggerSource): Promise<SyncRunRecord
 		const { aggregated, skipped, highestLogId } = await aggregateLogs(logs);
 		const results: SkuResult[] = [...skipped];
 
-		for (const { sku, netDelta } of aggregated) {
+		for (const { sku, skuCandidates: candidates, netDelta } of aggregated) {
 			try {
-				const variant = await findVariantBySku(sku);
+				const variant = await findVariantBySku(candidates);
 
 				if (!variant) {
 					results.push({

@@ -20,7 +20,40 @@
 	let previewSku = $state('');
 	let expandedRunId = $state<number | null>(null);
 	let expandedPreviewSku = $state<string | null>(null);
+	let expandedSaleId = $state<string | null>(null);
+	let previewTab = $state<'sales' | 'skus'>('sales');
 	let error = $state('');
+
+	interface SaleGroup {
+		saleID: string;
+		time: string;
+		items: { sku: string; reason: string; qohChange: number; inventoryLogID: string }[];
+		totalDelta: number;
+	}
+
+	let previewSales = $derived.by(() => {
+		if (!preview) return [];
+		const salesMap = new Map<string, SaleGroup>();
+		for (const change of preview.changes) {
+			for (const log of change.logs) {
+				const sid = log.saleID || 'no-sale';
+				const existing = salesMap.get(sid);
+				if (existing) {
+					existing.items.push({ sku: change.sku, reason: log.reason, qohChange: log.qohChange, inventoryLogID: log.inventoryLogID });
+					existing.totalDelta += log.qohChange;
+					if (log.createTime < existing.time) existing.time = log.createTime;
+				} else {
+					salesMap.set(sid, {
+						saleID: sid,
+						time: log.createTime,
+						items: [{ sku: change.sku, reason: log.reason, qohChange: log.qohChange, inventoryLogID: log.inventoryLogID }],
+						totalDelta: log.qohChange
+					});
+				}
+			}
+		}
+		return [...salesMap.values()].sort((a, b) => b.time.localeCompare(a.time));
+	});
 
 	async function triggerSync() {
 		syncing = true;
@@ -121,6 +154,24 @@
 	function skuStatusColor(status: string): string {
 		switch (status) {
 			case 'updated': return 'text-green-700';
+			case 'skipped': return 'text-yellow-700';
+			case 'failed': return 'text-red-700';
+			default: return 'text-gray-700';
+		}
+	}
+
+	function previewStatusLabel(status: string): string {
+		switch (status) {
+			case 'updated': return 'pending';
+			case 'skipped': return 'skipped';
+			case 'failed': return 'failed';
+			default: return status;
+		}
+	}
+
+	function previewStatusColor(status: string): string {
+		switch (status) {
+			case 'updated': return 'text-blue-700';
 			case 'skipped': return 'text-yellow-700';
 			case 'failed': return 'text-red-700';
 			default: return 'text-gray-700';
@@ -290,6 +341,10 @@
 					{/if}
 				</div>
 			{/if}
+			<p class="mt-2 text-xs text-gray-400">
+				The watermark tracks which inventory log was last processed. After a sync, it advances automatically.
+				To test, set it near the highest ID (e.g. "Last 10 logs"), then use "Preview changes" to inspect before syncing.
+			</p>
 		</div>
 
 		<!-- Actions -->
@@ -346,70 +401,140 @@
 					</div>
 				{/if}
 
-				{#if preview.changes.length > 0}
-					<table class="w-full text-sm">
-						<thead>
-							<tr class="text-left text-xs text-blue-700">
-								<th class="pb-1">SKU</th>
-								<th class="pb-1">Variant ID</th>
-								<th class="pb-1">Current</th>
-								<th class="pb-1">Delta</th>
-								<th class="pb-1">New</th>
-								<th class="pb-1">Status</th>
-								<th class="pb-1">Sales</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each preview.changes as change}
-								<tr
-									class="cursor-pointer border-t border-blue-100 hover:bg-blue-100/50"
-									onclick={() => expandedPreviewSku = expandedPreviewSku === change.sku ? null : change.sku}
-								>
-									<td class="py-1 font-mono text-xs">{change.sku}</td>
-									<td class="py-1">{change.ecomVariantId ?? '—'}</td>
-									<td class="py-1">{change.stockBefore ?? '—'}</td>
-									<td class="py-1 {change.delta > 0 ? 'text-green-700' : 'text-red-700'}">
-										{change.delta > 0 ? '+' : ''}{change.delta}
-									</td>
-									<td class="py-1">{change.stockAfter ?? '—'}</td>
-									<td class="py-1 {skuStatusColor(change.status)}">{change.status}</td>
-									<td class="py-1 text-blue-600">{change.logs.length} log{change.logs.length !== 1 ? 's' : ''}</td>
-								</tr>
-								{#if expandedPreviewSku === change.sku}
-									<tr>
-										<td colspan="7" class="bg-blue-100/30 px-4 py-2">
+				<!-- Tabs -->
+				<div class="mb-3 flex gap-1">
+					<button
+						onclick={() => previewTab = 'sales'}
+						class="rounded px-3 py-1 text-xs font-medium {previewTab === 'sales' ? 'bg-blue-200 text-blue-900' : 'text-blue-600 hover:bg-blue-100'}"
+					>
+						By sale ({previewSales.length})
+					</button>
+					<button
+						onclick={() => previewTab = 'skus'}
+						class="rounded px-3 py-1 text-xs font-medium {previewTab === 'skus' ? 'bg-blue-200 text-blue-900' : 'text-blue-600 hover:bg-blue-100'}"
+					>
+						By SKU ({preview.changes.length})
+					</button>
+				</div>
+
+				{#if previewTab === 'sales'}
+					{#if previewSales.length > 0}
+						<div class="space-y-2">
+							{#each previewSales as sale}
+								<div class="rounded border border-blue-100 bg-white">
+									<button
+										class="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-blue-50/50"
+										onclick={() => expandedSaleId = expandedSaleId === sale.saleID ? null : sale.saleID}
+									>
+										<div class="flex items-center gap-3">
+											<span class="font-mono text-xs font-medium text-blue-800">
+												{sale.saleID === 'no-sale' ? 'No sale ID' : `Sale #${sale.saleID}`}
+											</span>
+											<span class="text-xs text-gray-500">{formatTime(sale.time)}</span>
+											<span class="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
+												{sale.items.length} item{sale.items.length !== 1 ? 's' : ''}
+											</span>
+										</div>
+										<span class="font-mono text-xs {sale.totalDelta > 0 ? 'text-green-700' : 'text-red-700'}">
+											{sale.totalDelta > 0 ? '+' : ''}{sale.totalDelta}
+										</span>
+									</button>
+									{#if expandedSaleId === sale.saleID}
+										<div class="border-t border-blue-100 px-3 py-2">
 											<table class="w-full text-xs">
 												<thead>
 													<tr class="text-left text-blue-600">
-														<th class="pb-1">Log ID</th>
+														<th class="pb-1">SKU</th>
 														<th class="pb-1">Reason</th>
 														<th class="pb-1">Qty</th>
-														<th class="pb-1">Sale ID</th>
-														<th class="pb-1">Time</th>
+														<th class="pb-1">Log ID</th>
 													</tr>
 												</thead>
 												<tbody>
-													{#each change.logs as log}
-														<tr class="border-t border-blue-100/50">
-															<td class="py-0.5 font-mono">{log.inventoryLogID}</td>
-															<td class="py-0.5">{log.reason}</td>
-															<td class="py-0.5 {log.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
-																{log.qohChange > 0 ? '+' : ''}{log.qohChange}
+													{#each sale.items as item}
+														<tr class="border-t border-blue-50">
+															<td class="py-0.5 font-mono">{item.sku}</td>
+															<td class="py-0.5">{item.reason === 'removeInventoryForTransaction' ? 'sale' : item.reason === 'addInventoryForTransaction' ? 'return' : item.reason}</td>
+															<td class="py-0.5 {item.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
+																{item.qohChange > 0 ? '+' : ''}{item.qohChange}
 															</td>
-															<td class="py-0.5 font-mono">{log.saleID ?? '—'}</td>
-															<td class="py-0.5 text-gray-500">{formatTime(log.createTime)}</td>
+															<td class="py-0.5 font-mono text-gray-400">{item.inventoryLogID}</td>
 														</tr>
 													{/each}
 												</tbody>
 											</table>
-										</td>
-									</tr>
-								{/if}
+										</div>
+									{/if}
+								</div>
 							{/each}
-						</tbody>
-					</table>
+						</div>
+					{:else}
+						<p class="text-sm text-blue-700">No sales found in pending logs.</p>
+					{/if}
 				{:else}
-					<p class="text-sm text-blue-700">No pending changes.</p>
+					{#if preview.changes.length > 0}
+						<table class="w-full text-sm">
+							<thead>
+								<tr class="text-left text-xs text-blue-700">
+									<th class="pb-1">SKU</th>
+									<th class="pb-1">Variant ID</th>
+									<th class="pb-1">Current</th>
+									<th class="pb-1">Delta</th>
+									<th class="pb-1">New</th>
+									<th class="pb-1">Status</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each preview.changes as change}
+									<tr
+										class="cursor-pointer border-t border-blue-100 hover:bg-blue-100/50"
+										onclick={() => expandedPreviewSku = expandedPreviewSku === change.sku ? null : change.sku}
+									>
+										<td class="py-1 font-mono text-xs">{change.sku}</td>
+										<td class="py-1">{change.ecomVariantId ?? '—'}</td>
+										<td class="py-1">{change.stockBefore ?? '—'}</td>
+										<td class="py-1 {change.delta > 0 ? 'text-green-700' : 'text-red-700'}">
+											{change.delta > 0 ? '+' : ''}{change.delta}
+										</td>
+										<td class="py-1">{change.stockAfter ?? '—'}</td>
+										<td class="py-1 {previewStatusColor(change.status)}">{previewStatusLabel(change.status)}</td>
+									</tr>
+									{#if expandedPreviewSku === change.sku}
+										<tr>
+											<td colspan="6" class="bg-blue-100/30 px-4 py-2">
+												<table class="w-full text-xs">
+													<thead>
+														<tr class="text-left text-blue-600">
+															<th class="pb-1">Log ID</th>
+															<th class="pb-1">Reason</th>
+															<th class="pb-1">Qty</th>
+															<th class="pb-1">Sale ID</th>
+															<th class="pb-1">Time</th>
+														</tr>
+													</thead>
+													<tbody>
+														{#each change.logs as log}
+															<tr class="border-t border-blue-100/50">
+																<td class="py-0.5 font-mono">{log.inventoryLogID}</td>
+																<td class="py-0.5">{log.reason}</td>
+																<td class="py-0.5 {log.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
+																	{log.qohChange > 0 ? '+' : ''}{log.qohChange}
+																</td>
+																<td class="py-0.5 font-mono">{log.saleID ?? '—'}</td>
+																<td class="py-0.5 text-gray-500">{formatTime(log.createTime)}</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+											</td>
+										</tr>
+									{/if}
+								{/each}
+							</tbody>
+						</table>
+					{:else}
+						<p class="text-sm text-blue-700">No pending changes.</p>
+					{/if}
 				{/if}
 			</div>
 		{/if}
@@ -432,6 +557,7 @@
 							<th class="px-4 py-2">Updated</th>
 							<th class="px-4 py-2">Skipped</th>
 							<th class="px-4 py-2">Failed</th>
+							<th class="px-4 py-2">Log IDs</th>
 							<th class="px-4 py-2">Duration</th>
 							<th class="px-4 py-2">Time</th>
 						</tr>
@@ -466,6 +592,13 @@
 								<td class="px-4 py-2 text-green-700">{run.skusUpdated}</td>
 								<td class="px-4 py-2 text-yellow-700">{run.skusSkipped}</td>
 								<td class="px-4 py-2 text-red-700">{run.skusFailed}</td>
+								<td class="px-4 py-2 font-mono text-xs text-gray-500">
+									{#if run.watermarkBefore != null && run.watermarkAfter != null}
+										{run.watermarkBefore} → {run.watermarkAfter}
+									{:else}
+										—
+									{/if}
+								</td>
 								<td class="px-4 py-2">{duration(run.startedAt, run.finishedAt)}</td>
 								<td class="px-4 py-2 text-gray-500">{formatTime(run.finishedAt)}</td>
 							</tr>
@@ -473,7 +606,7 @@
 							<!-- Expanded detail -->
 							{#if expandedRunId === run.id}
 								<tr>
-									<td colspan="8" class="bg-gray-50 px-4 py-3">
+									<td colspan="9" class="bg-gray-50 px-4 py-3">
 										{#if run.error}
 											<div class="mb-2 text-sm text-red-700">Error: {run.error}</div>
 										{/if}

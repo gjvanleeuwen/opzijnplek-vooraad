@@ -13,6 +13,7 @@ export interface RSeriesItem {
 	itemID: string;
 	customSku: string;
 	systemSku: string;
+	manufacturerSku: string;
 	upc: string;
 	ean: string;
 	description: string;

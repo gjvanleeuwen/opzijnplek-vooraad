@@ -55,20 +55,19 @@ export async function getVariant(id: number): Promise<EcomVariant> {
 	return data.variant;
 }
 
-export async function findVariantBySku(sku: string): Promise<EcomVariant | null> {
-	// Try SKU field first
-	const bySku = await ecomFetch<VariantsResponse>(`/variants.json?sku=${encodeURIComponent(sku)}`);
-	if (bySku.variants.length > 0) return bySku.variants[0];
+export async function findVariantBySku(skuOrCandidates: string | string[]): Promise<EcomVariant | null> {
+	const candidates = Array.isArray(skuOrCandidates) ? skuOrCandidates : [skuOrCandidates];
+	const ecomFields = ['sku', 'ean', 'articleCode'] as const;
 
-	// Fallback: try EAN
-	const byEan = await ecomFetch<VariantsResponse>(`/variants.json?ean=${encodeURIComponent(sku)}`);
-	if (byEan.variants.length > 0) return byEan.variants[0];
-
-	// Fallback: try article code
-	const byArticle = await ecomFetch<VariantsResponse>(
-		`/variants.json?articleCode=${encodeURIComponent(sku)}`
-	);
-	if (byArticle.variants.length > 0) return byArticle.variants[0];
+	// For each candidate, try each eCom field
+	for (const candidate of candidates) {
+		for (const field of ecomFields) {
+			const data = await ecomFetch<VariantsResponse>(
+				`/variants.json?${field}=${encodeURIComponent(candidate)}`
+			);
+			if (data.variants.length > 0) return data.variants[0];
+		}
+	}
 
 	return null;
 }
