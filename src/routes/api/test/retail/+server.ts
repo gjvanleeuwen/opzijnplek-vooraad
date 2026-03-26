@@ -1,35 +1,26 @@
 import { json } from '@sveltejs/kit';
-import { fetchLatestInventoryLogs } from '$lib/server/retail';
+import { fetchInventoryLogsSince, fetchRecentSales } from '$lib/server/retail';
 import type { RequestHandler } from './$types';
-
-// Re-export retailFetch indirectly for the sales check
-import { getSetting } from '$lib/server/store';
-import { env } from '$env/dynamic/private';
 
 export const GET: RequestHandler = async () => {
 	try {
-		const logs = await fetchLatestInventoryLogs(100);
+		// Fetch today's logs
+		const today = new Date().toISOString().split('T')[0] + 'T00:00:00';
+		const logs = await fetchInventoryLogsSince(today);
 
 		const reasonCounts: Record<string, number> = {};
 		for (const log of logs) {
 			reasonCounts[log.reason] = (reasonCounts[log.reason] || 0) + 1;
 		}
 
-		// Also check if any sales exist at all
-		const accountId = getSetting('ls_retail_account_id');
-		let recentSales = null;
-		if (accountId) {
-			// Borrow a token by importing the fetch helper indirectly
-			const { fetchRecentSales } = await import('$lib/server/retail');
-			recentSales = await fetchRecentSales(5);
-		}
+		const recentSales = await fetchRecentSales(5);
 
 		return json({
 			ok: true,
-			totalLogs: logs.length,
-			highestLogId: logs.length > 0 ? logs[logs.length - 1].inventoryLogID : null,
+			since: today,
+			logsCount: logs.length,
 			reasonCounts,
-			latestLogs: logs.slice(-10),
+			logs,
 			recentSales
 		});
 	} catch (e) {

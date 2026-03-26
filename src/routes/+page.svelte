@@ -10,6 +10,10 @@
 	let runs = $derived(extraRuns ?? data.runs);
 	let warnings = $derived(extraWarnings ?? data.warnings);
 	let retailConnected = $derived(data.retailConnected);
+	let currentWatermark = $state(data.watermark);
+	let watermarkInput = $state(String(data.watermark));
+	let watermarkInfo = $state<{ totalLogs: number | null; highestLogId: number | null } | null>(null);
+	let loadingWatermark = $state(false);
 	let syncing = $state(false);
 	let previewing = $state(false);
 	let preview = $state<PreviewResult | null>(null);
@@ -51,6 +55,37 @@
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			previewing = false;
+		}
+	}
+
+	async function fetchWatermarkInfo() {
+		loadingWatermark = true;
+		try {
+			const res = await fetch('/api/sync/watermark');
+			if (res.ok) {
+				const data = await res.json();
+				currentWatermark = data.current;
+				watermarkInput = String(data.current);
+				watermarkInfo = { totalLogs: data.totalLogs, highestLogId: data.highestLogId };
+			}
+		} finally {
+			loadingWatermark = false;
+		}
+	}
+
+	async function setWatermark(value: number) {
+		error = '';
+		const res = await fetch('/api/sync/watermark', {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ watermark: value })
+		});
+		if (res.ok) {
+			currentWatermark = value;
+			watermarkInput = String(value);
+		} else {
+			const body = await res.json();
+			error = body.error || 'Failed to set watermark';
 		}
 	}
 
@@ -195,6 +230,67 @@
 				</a>
 			</div>
 		{/if}
+
+		<!-- Watermark -->
+		<div class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
+			<div class="mb-2 flex items-center justify-between">
+				<h2 class="text-sm font-semibold text-gray-900">Watermark</h2>
+				<button
+					onclick={fetchWatermarkInfo}
+					disabled={loadingWatermark}
+					class="text-xs text-blue-600 hover:underline disabled:opacity-50"
+				>
+					{loadingWatermark ? 'Loading...' : 'Refresh from R-Series'}
+				</button>
+			</div>
+			<div class="flex flex-wrap items-end gap-3">
+				<div>
+					<label for="watermarkInput" class="block text-xs text-gray-500">Current position (log ID)</label>
+					<input
+						id="watermarkInput"
+						type="number"
+						bind:value={watermarkInput}
+						min="0"
+						class="mt-1 w-32 rounded border border-gray-300 px-3 py-1.5 text-sm font-mono"
+					/>
+				</div>
+				<button
+					onclick={() => setWatermark(parseInt(watermarkInput) || 0)}
+					disabled={parseInt(watermarkInput) === currentWatermark}
+					class="rounded bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 disabled:opacity-30"
+				>
+					Set watermark
+				</button>
+				{#if watermarkInfo?.highestLogId}
+					<button
+						onclick={() => { watermarkInput = String(watermarkInfo!.highestLogId! - 10); setWatermark(watermarkInfo!.highestLogId! - 10); }}
+						class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+					>
+						Last 10 logs
+					</button>
+					<button
+						onclick={() => { watermarkInput = String(watermarkInfo!.highestLogId! - 50); setWatermark(watermarkInfo!.highestLogId! - 50); }}
+						class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+					>
+						Last 50 logs
+					</button>
+					<button
+						onclick={() => { watermarkInput = String(watermarkInfo!.highestLogId!); setWatermark(watermarkInfo!.highestLogId!); }}
+						class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+					>
+						Skip to latest
+					</button>
+				{/if}
+			</div>
+			{#if watermarkInfo}
+				<div class="mt-2 text-xs text-gray-500">
+					R-Series: {watermarkInfo.totalLogs ?? '?'} total logs, highest ID: {watermarkInfo.highestLogId ?? '?'}
+					{#if watermarkInfo.highestLogId}
+						— {watermarkInfo.highestLogId - currentWatermark} logs pending
+					{/if}
+				</div>
+			{/if}
+		</div>
 
 		<!-- Actions -->
 		<div class="mb-6 flex flex-wrap items-end gap-4">

@@ -106,19 +106,71 @@ export async function fetchInventoryLogs(sinceLogId = 0, maxPages = 10): Promise
 	return all;
 }
 
-export async function fetchLatestInventoryLogs(limit = 100): Promise<InventoryLogEntry[]> {
-	const data = await retailFetch<{ InventoryLog?: InventoryLogEntry | InventoryLogEntry[] }>(
-		`/InventoryLog.json?orderby=inventoryLogID&orderby_desc=1&limit=${limit}`
-	);
+export async function fetchLatestInventoryLogs(totalLimit = 100): Promise<InventoryLogEntry[]> {
+	const all: InventoryLogEntry[] = [];
+	let cursor: number | null = null;
+	const pageSize = 100;
 
-	if (!data.InventoryLog) return [];
-	const logs = Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
-	return logs;
+	while (all.length < totalLimit) {
+		const cursorFilter = cursor ? `&inventoryLogID=%3C,${cursor}` : '';
+		const data = await retailFetch<{ InventoryLog?: InventoryLogEntry | InventoryLogEntry[] }>(
+			`/InventoryLog.json?orderby=inventoryLogID&orderby_desc=1&limit=${pageSize}${cursorFilter}`
+		);
+
+		if (!data.InventoryLog) break;
+
+		const batch = Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
+		all.push(...batch);
+
+		if (batch.length < pageSize) break;
+
+		cursor = parseInt(batch[batch.length - 1].inventoryLogID);
+	}
+
+	return all.slice(0, totalLimit);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchRecentSales(limit = 5): Promise<any> {
 	return retailFetch(`/Sale.json?orderby=saleID&orderby_desc=1&limit=${limit}&load_relations=["SaleLines"]`);
+}
+
+export async function fetchInventoryLogsSince(isoDate: string): Promise<InventoryLogEntry[]> {
+	const all: InventoryLogEntry[] = [];
+	let offset = 0;
+	const pageSize = 100;
+
+	while (true) {
+		const data = await retailFetch<{ InventoryLog?: InventoryLogEntry | InventoryLogEntry[] }>(
+			`/InventoryLog.json?createTime=%3E%3D,${encodeURIComponent(isoDate)}&orderby=inventoryLogID&limit=${pageSize}&offset=${offset}`
+		);
+
+		if (!data.InventoryLog) break;
+		const batch = Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
+		all.push(...batch);
+		if (batch.length < pageSize) break;
+		offset += pageSize;
+	}
+
+	return all;
+}
+
+export async function getInventoryLogCount(): Promise<{ count: number; highestId: number }> {
+	// Fetch 1 log descending to get the highest ID and the count from metadata
+	const data = await retailFetch<{
+		'@attributes'?: { count: string };
+		InventoryLog?: InventoryLogEntry | InventoryLogEntry[];
+	}>(`/InventoryLog.json?orderby=inventoryLogID&orderby_desc=1&limit=1`);
+
+	const count = parseInt(data['@attributes']?.count ?? '0');
+	let highestId = 0;
+
+	if (data.InventoryLog) {
+		const logs = Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
+		if (logs.length > 0) highestId = parseInt(logs[0].inventoryLogID);
+	}
+
+	return { count, highestId };
 }
 
 export async function fetchItem(itemId: string): Promise<RSeriesItem> {
