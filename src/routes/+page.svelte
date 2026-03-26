@@ -9,8 +9,7 @@
 	let runs = $derived(extraRuns ?? data.runs);
 	let retailConnected = $derived(data.retailConnected);
 	let currentWatermark = $state(data.watermark);
-	let watermarkInfo = $state<{ totalLogs: number | null; highestLogId: number | null } | null>(null);
-	let loadingWatermark = $state(false);
+	let pendingLogs = $state<number | null>(null);
 	let syncing = $state(false);
 	let previewing = $state(false);
 	let preview = $state<PreviewResult | null>(null);
@@ -57,6 +56,7 @@
 				error = body.error || `Sync failed (${res.status})`;
 			}
 			await refreshRuns();
+			pendingLogs = null;
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -76,24 +76,13 @@
 				return;
 			}
 			preview = await res.json();
+			if (preview) {
+				pendingLogs = preview.wouldAdvanceTo - currentWatermark;
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			previewing = false;
-		}
-	}
-
-	async function fetchWatermarkInfo() {
-		loadingWatermark = true;
-		try {
-			const res = await fetch('/api/sync/watermark');
-			if (res.ok) {
-				const data = await res.json();
-				currentWatermark = data.current;
-				watermarkInfo = { totalLogs: data.totalLogs, highestLogId: data.highestLogId };
-			}
-		} finally {
-			loadingWatermark = false;
 		}
 	}
 
@@ -144,6 +133,10 @@
 		}
 	}
 
+	function skuLookup(list: SkuResult[], sku: string): SkuResult | undefined {
+		return list.find(r => r.sku === sku);
+	}
+
 	function reasonLabel(reason: string): string {
 		if (reason === 'removeInventoryForTransaction') return 'sale';
 		if (reason === 'addInventoryForTransaction') return 'return';
@@ -169,25 +162,9 @@
 <div class="min-h-screen bg-gray-50 p-6">
 	<div class="mx-auto max-w-5xl">
 		<!-- Header -->
-		<div class="mb-8 flex items-center justify-between">
-			<div class="flex items-center gap-3">
-				<img src="/opzijnplek.png" alt="Op Zijn Plek" class="h-10" />
-				<p class="text-sm text-gray-500">Inventory sync</p>
-			</div>
-			{#if runs.length > 0}
-				{@const last = runs[0]}
-				<div class="text-right text-sm">
-					<span class="inline-block rounded px-2 py-0.5 text-xs font-medium {statusColor(last.status)}">
-						{last.status}
-					</span>
-					{#if last.verification}
-						<span class="ml-1 inline-block rounded px-2 py-0.5 text-xs font-medium {last.verification.mismatches > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}">
-							{last.verification.mismatches > 0 ? `${last.verification.mismatches} mismatches` : 'verified'}
-						</span>
-					{/if}
-					<div class="mt-1 text-gray-500">{formatTime(last.finishedAt)}</div>
-				</div>
-			{/if}
+		<div class="mb-8 flex items-center gap-3">
+			<img src="/opzijnplek.png" alt="Op Zijn Plek" class="h-10" />
+			<p class="text-sm text-gray-500">Inventory sync</p>
 		</div>
 
 		<!-- Error banner -->
@@ -210,45 +187,6 @@
 				</a>
 			</div>
 		{/if}
-
-		<!-- Status bar: watermark + view mode -->
-		<div class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-4 text-sm text-gray-700">
-					<div>
-						<span class="font-medium">Last processed log:</span>
-						<span class="ml-1 font-mono">{currentWatermark}</span>
-						{#if watermarkInfo?.highestLogId}
-							{@const pending = watermarkInfo.highestLogId - currentWatermark}
-							<span class="ml-2 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
-								{pending > 0 ? `${pending} logs pending` : 'up to date'}
-							</span>
-						{/if}
-					</div>
-					<button
-						onclick={fetchWatermarkInfo}
-						disabled={loadingWatermark}
-						class="text-xs text-blue-600 hover:underline disabled:opacity-50"
-					>
-						{loadingWatermark ? 'Checking...' : 'Check for new logs'}
-					</button>
-				</div>
-				<div class="flex rounded border border-gray-200">
-					<button
-						onclick={() => viewMode = 'sales'}
-						class="px-3 py-1 text-xs font-medium {viewMode === 'sales' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-50'}"
-					>
-						By sale
-					</button>
-					<button
-						onclick={() => viewMode = 'skus'}
-						class="px-3 py-1 text-xs font-medium {viewMode === 'skus' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-50'}"
-					>
-						By SKU
-					</button>
-				</div>
-			</div>
-		</div>
 
 		<!-- Actions -->
 		<div class="mb-6 flex flex-wrap items-end gap-4">
@@ -277,6 +215,33 @@
 					class="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
 				>
 					{previewing ? 'Loading...' : 'Preview changes'}
+				</button>
+			</div>
+		</div>
+
+		<!-- Status bar: watermark + view mode -->
+		<div class="mb-6 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3">
+			<div class="text-sm text-gray-700">
+				<span class="font-medium">Last processed log:</span>
+				<span class="ml-1 font-mono">{currentWatermark}</span>
+				{#if pendingLogs != null}
+					<span class="ml-2 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+						{pendingLogs > 0 ? `${pendingLogs} logs pending` : 'up to date'}
+					</span>
+				{/if}
+			</div>
+			<div class="flex rounded border border-gray-200">
+				<button
+					onclick={() => viewMode = 'sales'}
+					class="px-3 py-1 text-xs font-medium {viewMode === 'sales' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-50'}"
+				>
+					By sale
+				</button>
+				<button
+					onclick={() => viewMode = 'skus'}
+					class="px-3 py-1 text-xs font-medium {viewMode === 'skus' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-50'}"
+				>
+					By SKU
 				</button>
 			</div>
 		</div>
@@ -338,18 +303,23 @@
 															<th class="pb-1">SKU</th>
 															<th class="pb-1">Reason</th>
 															<th class="pb-1">Qty</th>
-															<th class="pb-1">Log ID</th>
+															<th class="pb-1">Current</th>
+															<th class="pb-1">New</th>
+															<th class="pb-1">Status</th>
 														</tr>
 													</thead>
 													<tbody>
 														{#each sale.items as item}
+															{@const match = skuLookup(preview.changes, item.sku)}
 															<tr class="border-t border-gray-50">
 																<td class="py-0.5 font-mono">{item.sku}</td>
 																<td class="py-0.5">{reasonLabel(item.reason)}</td>
 																<td class="py-0.5 {item.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
 																	{item.qohChange > 0 ? '+' : ''}{item.qohChange}
 																</td>
-																<td class="py-0.5 font-mono text-gray-400">{item.inventoryLogID}</td>
+																<td class="py-0.5">{match?.stockBefore ?? '—'}</td>
+																<td class="py-0.5">{match?.stockAfter ?? '—'}</td>
+																<td class="py-0.5 {match ? previewStatusColor(match.status) : ''}">{match ? previewStatusLabel(match.status) : '—'}</td>
 															</tr>
 														{/each}
 													</tbody>
@@ -556,18 +526,23 @@
 																				<th class="pb-1">SKU</th>
 																				<th class="pb-1">Reason</th>
 																				<th class="pb-1">Qty</th>
-																				<th class="pb-1">Log ID</th>
+																				<th class="pb-1">Before</th>
+																				<th class="pb-1">After</th>
+																				<th class="pb-1">Status</th>
 																			</tr>
 																		</thead>
 																		<tbody>
 																			{#each sale.items as item}
+																				{@const match = skuLookup(run.log, item.sku)}
 																				<tr class="border-t border-gray-50">
 																					<td class="py-0.5 font-mono">{item.sku}</td>
 																					<td class="py-0.5">{reasonLabel(item.reason)}</td>
 																					<td class="py-0.5 {item.qohChange > 0 ? 'text-green-700' : 'text-red-700'}">
 																						{item.qohChange > 0 ? '+' : ''}{item.qohChange}
 																					</td>
-																					<td class="py-0.5 font-mono text-gray-400">{item.inventoryLogID}</td>
+																					<td class="py-0.5">{match?.stockBefore ?? '—'}</td>
+																					<td class="py-0.5">{match?.stockAfter ?? '—'}</td>
+																					<td class="py-0.5 {match ? skuStatusColor(match.status) : ''}">{match?.status ?? '—'}</td>
 																				</tr>
 																			{/each}
 																		</tbody>
