@@ -187,7 +187,7 @@
 				<span class="font-medium text-yellow-800">R-Series not connected.</span>
 				<span class="text-yellow-700">You need to authorize via OAuth to get a refresh token.</span>
 				<a
-					href="/api/auth/retail"
+					href="/api/connect/retail"
 					class="ml-2 inline-block rounded bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-700"
 				>
 					Connect R-Series

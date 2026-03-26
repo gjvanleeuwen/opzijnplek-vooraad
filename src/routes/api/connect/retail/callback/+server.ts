@@ -11,7 +11,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ error }, { status: 400 });
 	}
 
-	const redirectUri = `${url.origin}/api/auth/retail/callback`;
+	const redirectUri = `${url.origin}/api/connect/retail/callback`;
 
 	// Exchange authorization code for tokens
 	const res = await fetch('https://cloud.merchantos.com/oauth/access_token.php', {
