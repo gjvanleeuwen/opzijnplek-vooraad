@@ -82,15 +82,39 @@ async function retailFetch<T>(path: string): Promise<T> {
 
 // ── Public API ──────────────────────────────────────────────────────
 
-export async function fetchInventoryLogs(sinceLogId = 0): Promise<InventoryLogEntry[]> {
+export async function fetchInventoryLogs(sinceLogId = 0, maxPages = 10): Promise<InventoryLogEntry[]> {
+	const all: InventoryLogEntry[] = [];
+	let cursor = sinceLogId;
+
+	for (let page = 0; page < maxPages; page++) {
+		const data = await retailFetch<{ InventoryLog?: InventoryLogEntry | InventoryLogEntry[] }>(
+			`/InventoryLog.json?inventoryLogID=%3E,${cursor}&orderby=inventoryLogID&limit=100`
+		);
+
+		if (!data.InventoryLog) break;
+
+		const batch = Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
+		all.push(...batch);
+
+		// If we got fewer than 100, there are no more pages
+		if (batch.length < 100) break;
+
+		// Move cursor to the last log ID for next page
+		cursor = parseInt(batch[batch.length - 1].inventoryLogID);
+	}
+
+	return all;
+}
+
+export async function fetchLatestInventoryLogs(limit = 100): Promise<InventoryLogEntry[]> {
 	const data = await retailFetch<{ InventoryLog?: InventoryLogEntry | InventoryLogEntry[] }>(
-		`/InventoryLog.json?inventoryLogID=%3E,${sinceLogId}&orderby=inventoryLogID&limit=100`
+		`/InventoryLog.json?orderby=inventoryLogID&orderby_desc=true&limit=${limit}`
 	);
 
 	if (!data.InventoryLog) return [];
-
-	// R-Series returns a single object instead of an array when there's only one result
-	return Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
+	const logs = Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
+	// Reverse so oldest is first (natural order)
+	return logs.reverse();
 }
 
 export async function fetchItem(itemId: string): Promise<RSeriesItem> {

@@ -1,28 +1,22 @@
 import { json } from '@sveltejs/kit';
-import { fetchInventoryLogs, fetchItem } from '$lib/server/retail';
+import { fetchLatestInventoryLogs } from '$lib/server/retail';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
 	try {
-		const logs = await fetchInventoryLogs(0);
+		const logs = await fetchLatestInventoryLogs(100);
 
-		// Count reasons to see what's actually in the logs
 		const reasonCounts: Record<string, number> = {};
 		for (const log of logs) {
 			reasonCounts[log.reason] = (reasonCounts[log.reason] || 0) + 1;
-		}
-
-		let sampleItem = null;
-		if (logs.length > 0) {
-			sampleItem = await fetchItem(logs[0].itemID);
 		}
 
 		return json({
 			ok: true,
 			logsCount: logs.length,
 			reasonCounts,
-			sampleLogs: logs.slice(0, 5),
-			sampleItem
+			// Show last 10 (most recent) for quick inspection
+			latestLogs: logs.slice(-10)
 		});
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
