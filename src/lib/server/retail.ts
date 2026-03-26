@@ -108,13 +108,12 @@ export async function fetchInventoryLogs(sinceLogId = 0, maxPages = 10): Promise
 
 export async function fetchLatestInventoryLogs(limit = 100): Promise<InventoryLogEntry[]> {
 	const data = await retailFetch<{ InventoryLog?: InventoryLogEntry | InventoryLogEntry[] }>(
-		`/InventoryLog.json?orderby=inventoryLogID&orderby_desc=true&limit=${limit}`
+		`/InventoryLog.json?orderby=inventoryLogID&orderby_desc=1&limit=${limit}`
 	);
 
 	if (!data.InventoryLog) return [];
 	const logs = Array.isArray(data.InventoryLog) ? data.InventoryLog : [data.InventoryLog];
-	// Reverse so oldest is first (natural order)
-	return logs.reverse();
+	return logs;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
