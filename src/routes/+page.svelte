@@ -140,6 +140,8 @@
 	function reasonLabel(reason: string): string {
 		if (reason === 'removeInventoryForTransaction') return 'sale';
 		if (reason === 'addInventoryForTransaction') return 'return';
+		if (reason === 'putBackForTransaction') return 'cancelled';
+		if (reason === 'autoResolvedNegativeInventory') return 'auto-resolve';
 		return reason;
 	}
 
@@ -261,7 +263,7 @@
 								<summary class="cursor-pointer text-xs text-blue-600 hover:underline">log types</summary>
 								<div class="mt-1 flex flex-wrap gap-1">
 									{#each Object.entries(preview.reasonCounts) as [reason, count]}
-										<span class="rounded px-1.5 py-0.5 text-xs font-mono {['removeInventoryForTransaction', 'addInventoryForTransaction'].includes(reason) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
+										<span class="rounded px-1.5 py-0.5 text-xs font-mono {['removeInventoryForTransaction', 'addInventoryForTransaction', 'putBackForTransaction', 'autoResolvedNegativeInventory'].includes(reason) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
 											{reason}: {count}
 										</span>
 									{/each}
